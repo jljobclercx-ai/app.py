@@ -4,13 +4,10 @@ from pydantic import BaseModel
 from typing import Optional, List
 
 # --- 1. CONFIGURATIE ---
-st.set_page_config(page_title="Trengo AI Parser", layout="wide")
-
-# Haal je API key veilig op uit de instellingen (Stap 4)
+st.set_page_config(page_title="Planning Tool Pro", layout="wide")
 api_key = st.secrets["OPENAI_API_KEY"]
 client = OpenAI(api_key=api_key)
 
-# Definieer de datastructuur
 class Job(BaseModel):
     datum: Optional[str] = "Onbekend"
     starttijd: Optional[str] = "Onbekend"
@@ -21,55 +18,93 @@ class Job(BaseModel):
     contactpersoon_tel: Optional[str] = "Onbekend"
     materiaal: Optional[str] = "Onbekend"
     po_nummer: Optional[str] = "Onbekend"
+    lift_aanwezig: Optional[bool] = False
 
 class PlanningOutput(BaseModel):
     klussen: List[Job]
 
-# --- 2. AI LOGICA ---
+# --- 2. FUNCTIE ---
 def parse_email(text):
-    prompt = f"Extraheer alle klussen uit deze mail. Splits per dag of per locatie:\n\n{text}"
+    prompt = f"""
+    Analyseer de mail en extraheer de klussen. 
+    Let specifiek op of er een lift wordt genoemd.
+    
+    E-mail tekst:
+    {text}
+    """
     response = client.beta.chat.completions.parse(
         model="gpt-4o-mini",
         messages=[
-            {"role": "system", "content": "Je bent een logistiek planner. Extraheer: Datum, Starttijd, Eindtijd, Werkzaamheden, Aantal Sjouwers, Locatie, Contactpersoon + tel nummer, Materiaal, PO Nummer."},
+            {"role": "system", "content": "Je bent een logistiek expert. Extraheer data nauwkeurig. Vul 'Onbekend' in als iets mist."},
             {"role": "user", "content": prompt},
         ],
         response_format=PlanningOutput,
     )
     return response.choices[0].message.parsed
 
-# --- 3. UI & TRENGO KOPPELING ---
-st.write("### 🤖 Planning Assistent")
+# --- 3. UI ---
+st.title("🚛 Planning & Briefing Tool")
 
-# Trengo stuurt de tekst van de mail mee in de URL
-# We halen deze op met st.query_params
 query_params = st.query_params
 email_content = query_params.get("body", "")
 
+if not email_content:
+    email_content = st.text_area("Geen mail gevonden via Trengo. Plak hier handmatig:", height=200)
+
 if email_content:
-    if st.button("Analyseer deze mail"):
+    if st.button("Genereer Output"):
         result = parse_email(email_content)
         
-        all_missing = []
         for i, job in enumerate(result.klussen):
-            with st.expander(f"Klus {i+1}", expanded=True):
-                data = job.model_dump()
-                st.table(data)
-                
-                # Check voor missende info
-                missing = [k for k, v in data.items() if v == "Onbekend"]
-                all_missing.extend(missing)
-        
-        if all_missing:
-            st.warning("Informatie mist!")
-            missende_str = ", ".join(list(set(all_missing)))
-            reply = f"Hoi, bedankt voor de aanvraag! Ik mis nog: {missende_str}. Kun je dit sturen?"
-            st.text_area("Concept antwoord:", value=reply)
-else:
-    st.info("Wachten op mail vanuit Trengo... (Of plak hieronder handmatig)")
-    manual_text = st.text_area("Handmatige invoer:")
-    if st.button("Analyseer Handmatig") and manual_text:
-        # Zelfde logica als hierboven
-        res = parse_email(manual_text)
-        for job in res.klussen:
-            st.table(job.model_dump())
+            st.divider()
+            st.header(f"📍 Klus {i+1}: {job.locatie}")
+            
+            job_data = job.model_dump()
+            missing_fields = [k.replace('_', ' ').capitalize() for k, v in job_data.items() if v == "Onbekend" and k != "lift_aanwezig"]
+
+            # --- DEEL 1: REACTIE OP MAIL ---
+            st.subheader("1. Reactie op mail")
+            if missing_fields:
+                missende_tekst = "\n".join([f"- {m}" for m in missing_fields])
+                mail_tekst = (
+                    f"Hi Inkoop Office Projects,\n\n"
+                    f"Bedankt voor je aanvraag. Om de planning compleet te maken, hebben we nog een paar gegevens nodig:\n\n"
+                    f"{missende_tekst}\n\n"
+                    f"Kun je deze informatie per mail aanvullen? Zodra we alles hebben, kunnen we de aanvraag verder in behandeling nemen."
+                )
+            else:
+                mail_tekst = (
+                    "Hi Inkoop Office Projects,\n\n"
+                    "Dank voor de aanvraag, wij gaan hem in de planning zetten. "
+                    "Over de invulling van de planning zullen wij snel meer delen.\n\n"
+                    "Vriendelijke groet,\n\nPlanning Team"
+                )
+            st.text_area("Kopieer klant-mail:", value=mail_tekst, height=200, key=f"mail_{i}")
+
+            # --- DEEL 2: KLUS INFORMATIE ---
+            st.subheader("2. Klus informatie")
+            info_lijst = f"""
+            **Datum:** {job.datum}
+            **Starttijd:** {job.starttijd}
+            **Geschatte eindtijd:** {job.eindtijd}
+            **Werkzaamheden:** {job.werkzaamheden}
+            **Aantal Sjouwers:** {job.aantal_sjouwers}
+            **Locatie:** {job.locatie}
+            **Contactpersoon + tel:** {job.contactpersoon_tel}
+            **Materiaal:** {job.materiaal}
+            **PO Nummer:** {job.po_nummer}
+            """
+            st.markdown(info_lijst)
+
+            # --- DEEL 3: BRIEFING ---
+            st.subheader("3. Briefing voor de mannen")
+            lift_tekst = "(Lift aanwezig)" if job.lift_aanwezig else "(Geen lift vermeld)"
+            
+            briefing = (
+                f"Mannen, jullie gaan de klant ondersteunen met:\n\n"
+                f"**De werkzaamheden:** {job.werkzaamheden}\n"
+                f"**Te sjouwen materiaal:** {job.materiaal}\n"
+                f"{lift_tekst}\n\n"
+                f"De eindtijd is indicatief, de klant verwacht dat jullie rond **{job.eindtijd}** klaar zijn."
+            )
+            st.info(briefing)
