@@ -39,7 +39,6 @@ def parse_email(text):
 # --- 3. UI ---
 st.title("🤖 Planning Assistent")
 
-# Trengo koppeling
 query_params = st.query_params
 email_content = query_params.get("body", st.text_area("Plak mail tekst:", height=150))
 
@@ -53,13 +52,43 @@ if st.button("Genereer Overzicht", type="primary"):
             # --- SECTIE 1: MAIL REACTIE ---
             st.caption("1. REACTIE OP MAIL (Kopieer via knop rechtsboven)")
             job_data = job.model_dump()
-            missing = [k.replace('_', ' ').capitalize() for k, v in job_data.items() if v == "Onbekend" and k != "lift_aanwezig"]
             
-            if missing:
-                missende_tekst = "\n".join([f"- {m}" for m in missing])
-                mail_tekst = f"Hi Inkoop Office Projects,\n\nBedankt voor je aanvraag. Om de planning compleet te maken, hebben we nog een paar gegevens nodig:\n\n{missende_tekst}\n\nKun je deze informatie per mail aanvullen? Zodra we alles hebben, kunnen we de aanvraag verder in behandeling nemen."
+            # We filteren de velden die 'Onbekend' zijn
+            missing_keys = [k for k, v in job_data.items() if v == "Onbekend" and k != "lift_aanwezig"]
+            
+            # Vertalingen voor de nette lijst
+            labels = {
+                "datum": "Datum",
+                "starttijd": "Starttijd",
+                "eindtijd": "Geschatte eindtijd",
+                "werkzaamheden": "Werkzaamheden",
+                "aantal_sjouwers": "Aantal sjouwers",
+                "locatie": "Locatie",
+                "contactpersoon_tel": "Contactpersoon + telefoonnummer",
+                "materiaal": "Materiaal",
+                "po_nummer": "PO-nummer"
+            }
+
+            if missing_keys:
+                lijstje_missend = ""
+                for key in missing_keys:
+                    lijstje_missend += f"{labels.get(key, key)}:\n"
+
+                mail_tekst = (
+                    f"Hi Inkoop Office Projects,\n\n"
+                    f"Dank voor de aanvraag, wij gaan hem in de planning zetten.\n"
+                    f"We missen nog wel een paar gegevens. Zou je onderstaande informatie met ons willen delen?\n\n"
+                    f"{lijstje_missend}\n"
+                    f"Over de invulling van de planning zullen wij snel meer delen.\n\n"
+                    f"Vriendelijke groet,\nPlanning Team"
+                )
             else:
-                mail_tekst = "Hi Inkoop Office Projects,\n\nDank voor de aanvraag, wij gaan hem in de planning zetten. Over de invulling van de planning zullen wij snel meer delen.\n\nVriendelijke groet,\nPlanning Team"
+                mail_tekst = (
+                    "Hi Inkoop Office Projects,\n\n"
+                    "Dank voor de aanvraag, wij gaan hem in de planning zetten. "
+                    "Over de invulling van de planning zullen wij snel meer delen.\n\n"
+                    "Vriendelijke groet,\nPlanning Team"
+                )
             
             st.code(mail_tekst, language="text")
 
